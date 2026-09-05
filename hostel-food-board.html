@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  HOSTEL FOOD COMPATIBILITY BOARD  (P02)
+  ============================================================
+  HOW TO RUN:
+    Double-click this file, or open it in any web browser.
+    No install, no build step, no server. Pure HTML/CSS/JS.
+
+  HOW TO USE:
+    - "Check compatibility" evaluates the built-in group + dishes.
+    - "Search" filters the DISPLAYED compatible dishes (count stays fixed).
+    - "Reset" restores the built-in data and clears results.
+    - "Run self-tests" runs assertions against the acceptance criteria.
+
+  ARCHITECTURE:
+    All rule logic is in PURE functions (no DOM access) in the top
+    half of the <script>. The DOM/render layer is strictly below the
+    marked line. This separation makes the logic unit-testable and
+    keeps modifications local.
+  ============================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hostel Food Compatibility Board</title>
+<style>
+  :root {
+    --bg: #12141a;
+    --panel: #1b1e27;
+    --panel-2: #22262f;
+    --line: #2e3340;
+    --text: #e7e9ee;
+    --muted: #9aa1af;
+    --ok: #4ea86b;
+    --ok-bg: #16281d;
+    --bad: #d9705f;
+    --bad-bg: #2a1a17;
+    --accent: #e0b341;
+    --focus: #6f8bd6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 0.95rem; }
+  h2 { font-size: 1rem; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  input, textarea {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 8px; font: inherit; width: 100%;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+  button {
+    background: var(--accent); color: #1a1400; border: 0;
+    padding: 9px 16px; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .search { max-width: 280px; margin-left: auto; }
+  .count { font-size: 0.9rem; color: var(--muted); margin: 0 0 14px; }
+  .count b { color: var(--text); }
+  .dish { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--panel-2); }
+  .dish.ok { border-left: 3px solid var(--ok); }
+  .dish.bad { border-left: 3px solid var(--bad); }
+  .dish-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .dish-name { font-weight: 600; }
+  .dish-meta { color: var(--muted); font-size: 0.82rem; }
+  .tags { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+  .reasons { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .reasons li {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.76rem; background: var(--bad-bg); color: var(--bad);
+    border: 1px solid #40251f; border-radius: 4px; padding: 2px 7px;
+  }
+  .badge-ok {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.76rem; background: var(--ok-bg); color: var(--ok);
+    border: 1px solid #1f3a29; border-radius: 4px; padding: 2px 7px;
+  }
+  .errors { margin-bottom: 18px; }
+  .error-item {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem; background: var(--bad-bg); color: var(--bad);
+    border: 1px solid #40251f; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;
+  }
+  .empty { color: var(--muted); font-size: 0.88rem; padding: 8px 0; }
+  .section-label { color: var(--muted); font-size: 0.8rem; margin: 16px 0 8px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Hostel Food Compatibility Board</h1>
+  <p class="sub">Find dishes the whole group can eat — by diet, allergens, and per-person budget.</p>
+
+  <div class="controls">
+    <button id="evaluateBtn">Check compatibility</button>
+    <button id="resetBtn" class="secondary">Reset</button>
+    <button id="testBtn" class="secondary">Run self-tests</button>
+    <input id="searchBox" class="search" type="text" placeholder="Search compatible dishes…" />
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Group &nbsp;·&nbsp; budget ₹<span id="budgetLabel"></span>/person</h2>
+      <table id="groupTable"><thead>
+        <tr><th>Resident</th><th>Diet</th><th>Allergens</th></tr>
+      </thead><tbody></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>Dishes</h2>
+      <table id="dishTable"><thead>
+        <tr><th>ID</th><th>Cafe</th><th>Dish</th><th>Diet</th><th>Ingredients</th><th>₹</th></tr>
+      </thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div id="testArea" class="panel" style="display:none;"></div>
+
+  <div id="errorArea" class="errors"></div>
+
+  <div id="resultArea" class="panel" style="display:none;">
+    <p class="count" id="countLine"></p>
+    <div class="section-label">Compatible</div>
+    <div id="compatibleList"></div>
+    <div class="section-label">Excluded</div>
+    <div id="excludedList"></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   DATA MODEL
+   Built-in group and dishes. These are the defaults Reset restores to.
+   ========================================================================= */
+const BUILTIN_BUDGET = 150;
+
+const BUILTIN_GROUP = [
+  { name: "Asha", diet: "VEGAN",          allergens: [] },
+  { name: "Dev",  diet: "VEGETARIAN",     allergens: ["PEANUT"] },
+  { name: "Mira", diet: "NO_RESTRICTION", allergens: ["MILK"] },
+];
+
+const BUILTIN_DISHES = [
+  { id: "D01", cafe: "Hostel Cafe",  name: "Lentil Rice Bowl", diet: "VEGAN",          ingredients: ["LENTIL", "RICE", "SPINACH"], price: 110 },
+  { id: "D02", cafe: "Library Cafe", name: "Tomato Pasta",     diet: "VEGAN",          ingredients: ["WHEAT", "TOMATO"],           price: 150 },
+  { id: "D03", cafe: "Hostel Cafe",  name: "Paneer Wrap",      diet: "VEGETARIAN",     ingredients: ["MILK", "WHEAT"],             price: 140 },
+  { id: "D04", cafe: "East Cafe",    name: "Peanut Noodles",   diet: "VEGAN",          ingredients: ["PEANUT", "WHEAT"],           price: 130 },
+  { id: "D05", cafe: "Library Cafe", name: "Egg Sandwich",     diet: "NON_VEGETARIAN", ingredients: ["EGG", "WHEAT"],              price: 100 },
+];
+
+// Which dish diet classes each resident diet will accept.
+const DIET_ACCEPTS = {
+  VEGAN:          ["VEGAN"],
+  VEGETARIAN:     ["VEGAN", "VEGETARIAN"],
+  NO_RESTRICTION: ["VEGAN", "VEGETARIAN", "NON_VEGETARIAN"],
+};
+
+/* =========================================================================
+   NORMALIZATION  (pure)
+   Trim + uppercase every comparable string so comparisons are exact.
+   ========================================================================= */
+const norm = (s) => String(s).trim().toUpperCase();
+
+function normalizeGroup(group) {
+  return group.map((r) => ({
+    name: String(r.name).trim(),
+    diet: norm(r.diet),
+    allergens: r.allergens.map(norm),
+  }));
+}
+
+function normalizeDishes(dishes) {
+  return dishes.map((d) => ({
+    id: String(d.id).trim(),
+    cafe: String(d.cafe).trim(),
+    name: String(d.name).trim(),
+    diet: norm(d.diet),
+    ingredients: d.ingredients.map(norm),
+    price: d.price,
+  }));
+}
+
+/* =========================================================================
+   VALIDATION  (pure)
+   Runs before compatibility. Returns a list of error strings.
+   A non-empty list means: show errors, compute nothing, clear results.
+   ========================================================================= */
+function validate(group, dishes, budget) {
+  const errors = [];
+
+  if (!(Number.isInteger(budget) && budget > 0)) {
+    errors.push(`INVALID_INPUT: group / budget — must be a positive whole rupee value`);
+  }
+
+  group.forEach((r, i) => {
+    if (!r.name || !String(r.name).trim()) {
+      errors.push(`INVALID_INPUT: group / row ${i + 1} / name — must not be empty`);
+    }
+  });
+
+  const seenIds = new Set();
+  dishes.forEach((d, i) => {
+    const row = i + 1;
+    const id = String(d.id).trim();
+    if (!id)                       errors.push(`INVALID_INPUT: dishes / row ${row} / id — must not be empty`);
+    if (!String(d.cafe).trim())    errors.push(`INVALID_INPUT: dishes / row ${row} / cafe — must not be empty`);
+    if (!String(d.name).trim())    errors.push(`INVALID_INPUT: dishes / row ${row} / name — must not be empty`);
+    if (!(Number.isInteger(d.price) && d.price > 0)) {
+      errors.push(`INVALID_INPUT: dishes / row ${row} / price — must be a positive whole rupee value`);
+    }
+    if (id) {
+      if (seenIds.has(id)) errors.push(`DUPLICATE_DISH_ID: dishes / row ${row} / id — "${id}"`);
+      else seenIds.add(id);
+    }
+  });
+
+  return errors;
+}
+
+/* =========================================================================
+   COMPATIBILITY CHECK  (pure)  — the core.
+   For ONE dish vs the whole group, returns:
+     { id, dish, compatible: bool, reasons: [ ...ordered reason strings ] }
+   Reason order: per resident (table order) diet-before-allergen;
+                 allergens in the dish's ingredient order; OVER_BUDGET last.
+   ========================================================================= */
+function evaluateDish(dish, group, budget) {
+  const reasons = [];
+
+  // Diet + allergen, resident by resident, in table order.
+  for (const resident of group) {
+    const accepted = DIET_ACCEPTS[resident.diet] || [];
+    if (!accepted.includes(dish.diet)) {
+      reasons.push(`DIET:${resident.name}`);
+    }
+    // Allergens walked in the DISH's ingredient order (not the resident's list order).
+    for (const ing of dish.ingredients) {
+      if (resident.allergens.includes(ing)) {
+        reasons.push(`ALLERGEN:${resident.name}:${ing}`);
+      }
+    }
+  }
+
+  // Budget last.
+  if (dish.price > budget) {
+    reasons.push("OVER_BUDGET");
+  }
+
+  return { id: dish.id, dish, compatible: reasons.length === 0, reasons };
+}
+
+// Run the check over every dish, preserving source order.
+function evaluateAll(group, dishes, budget) {
+  return dishes.map((d) => evaluateDish(d, group, budget));
+}
+
+/* =========================================================================
+   SEARCH  (pure)
+   Filters ONLY which compatible dishes are displayed.
+   Case-insensitive substring on cafe, dish name, or any ingredient tag.
+   Does NOT affect the compatible count.
+   ========================================================================= */
+function searchFilter(compatibleResults, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return compatibleResults;
+  return compatibleResults.filter((res) => {
+    const d = res.dish;
+    const haystack = [d.cafe, d.name, ...d.ingredients].join(" ").toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+/* =========================================================================
+   APP STATE + RENDER  (DOM lives only below this line)
+   ========================================================================= */
+let state = {
+  group: [],
+  dishes: [],
+  budget: BUILTIN_BUDGET,
+  results: null,   // null = not evaluated yet
+  errors: [],
+};
+
+function loadBuiltins() {
+  state.group = normalizeGroup(BUILTIN_GROUP);
+  state.dishes = normalizeDishes(BUILTIN_DISHES);
+  state.budget = BUILTIN_BUDGET;
+  state.results = null;
+  state.errors = [];
+  document.getElementById("searchBox").value = "";
+}
+
+function renderInputs() {
+  document.getElementById("budgetLabel").textContent = state.budget;
+
+  const gb = document.querySelector("#groupTable tbody");
+  gb.innerHTML = state.group.map((r) =>
+    `<tr><td>${r.name}</td><td>${r.diet}</td><td>${r.allergens.join(", ") || "none"}</td></tr>`
+  ).join("");
+
+  const db = document.querySelector("#dishTable tbody");
+  db.innerHTML = state.dishes.map((d) =>
+    `<tr><td>${d.id}</td><td>${d.cafe}</td><td>${d.name}</td><td>${d.diet}</td>` +
+    `<td>${d.ingredients.join(", ")}</td><td>${d.price}</td></tr>`
+  ).join("");
+}
+
+function renderErrors() {
+  const area = document.getElementById("errorArea");
+  if (!state.errors.length) { area.innerHTML = ""; return; }
+  area.innerHTML = state.errors.map((e) => `<div class="error-item">${e}</div>`).join("");
+}
+
+function renderResults() {
+  const area = document.getElementById("resultArea");
+
+  // No results if not evaluated yet, or if validation failed.
+  if (state.results === null || state.errors.length) {
+    area.style.display = "none";
+    return;
+  }
+  area.style.display = "block";
+
+  const compatible = state.results.filter((r) => r.compatible);
+  const excluded   = state.results.filter((r) => !r.compatible);
+
+  // Count is based on the UNFILTERED compatible list.
+  document.getElementById("countLine").innerHTML =
+    `<b>${compatible.length}</b> compatible dish${compatible.length === 1 ? "" : "es"}`;
+
+  // Search filters only what is DISPLAYED.
+  const query = document.getElementById("searchBox").value;
+  const shown = searchFilter(compatible, query);
+
+  const compHtml = shown.map((r) => `
+    <div class="dish ok">
+      <div class="dish-head">
+        <span class="dish-name">${r.dish.id} · ${r.dish.name}</span>
+        <span class="dish-meta">${r.dish.cafe} · ₹${r.dish.price}</span>
+      </div>
+      <div class="tags">${r.dish.diet} · ${r.dish.ingredients.join(", ")}</div>
+      <div style="margin-top:8px;"><span class="badge-ok">COMPATIBLE</span></div>
+    </div>`).join("");
+
+  document.getElementById("compatibleList").innerHTML =
+    compHtml || `<div class="empty">No compatible dishes match “${query.trim()}”.</div>`;
+
+  const exclHtml = excluded.map((r) => `
+    <div class="dish bad">
+      <div class="dish-head">
+        <span class="dish-name">${r.dish.id} · ${r.dish.name}</span>
+        <span class="dish-meta">${r.dish.cafe} · ₹${r.dish.price}</span>
+      </div>
+      <div class="tags">${r.dish.diet} · ${r.dish.ingredients.join(", ")}</div>
+      <ul class="reasons">${r.reasons.map((x) => `<li>${x}</li>`).join("")}</ul>
+    </div>`).join("");
+
+  document.getElementById("excludedList").innerHTML =
+    exclHtml || `<div class="empty">None.</div>`;
+}
+
+function renderAll() {
+  renderInputs();
+  renderErrors();
+  renderResults();
+}
+
+/* ---- actions ---- */
+function onEvaluate() {
+  state.errors = validate(state.group, state.dishes, state.budget);
+  if (state.errors.length) {
+    state.results = null;            // any error clears results
+  } else {
+    state.results = evaluateAll(state.group, state.dishes, state.budget);
+  }
+  renderAll();
+}
+
+function onReset() {
+  loadBuiltins();
+  renderAll();
+}
+
+function onSearch() {
+  // Re-render only; count is unaffected because it reads the unfiltered list.
+  renderResults();
+}
+
+/* =========================================================================
+   SELF-TESTS
+   Assertions against P02's acceptance criteria, runnable in-page.
+   Uses the same pure functions the app uses — no separate copy of logic.
+   ========================================================================= */
+function runSelfTests() {
+  const results = [];
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const t = (label, got, want) => results.push({ label, ok: eq(got, want), got, want });
+
+  const g = normalizeGroup(BUILTIN_GROUP);
+  const d = normalizeDishes(BUILTIN_DISHES);
+
+  // 1. Built-in oracle
+  const res = evaluateAll(g, d, 150);
+  const compat = res.filter(r => r.compatible).map(r => r.id);
+  t("compatible = [D01, D02]", compat, ["D01", "D02"]);
+  t("count = 2", compat.length, 2);
+  t("D03 reasons", res.find(r => r.id === "D03").reasons, ["DIET:Asha", "ALLERGEN:Mira:MILK"]);
+  t("D04 reasons", res.find(r => r.id === "D04").reasons, ["ALLERGEN:Dev:PEANUT"]);
+  t("D05 reasons", res.find(r => r.id === "D05").reasons, ["DIET:Asha", "DIET:Dev"]);
+
+  // 2. Budget boundary
+  t("D02 at exactly 150 is compatible", res.find(r => r.id === "D02").compatible, true);
+  const res130 = evaluateAll(g, d, 130);
+  t("D02 OVER_BUDGET at 130", res130.find(r => r.id === "D02").reasons, ["OVER_BUDGET"]);
+  t("compatible = [D01] at budget 130", res130.filter(r => r.compatible).map(r => r.id), ["D01"]);
+
+  // 3. Search decoupling (filters display, not count)
+  const comp = res.filter(r => r.compatible);
+  t("search 'wheat' -> [D02]", searchFilter(comp, "wheat").map(r => r.id), ["D02"]);
+  t("search 'hostel' -> [D01]", searchFilter(comp, "hostel").map(r => r.id), ["D01"]);
+  t("count unaffected by search (still 2)", comp.length, 2);
+
+  // 4. Validation
+  t("zero price rejected", validate(g, [{ ...d[0], price: 0 }], 150).length > 0, true);
+  t("negative price rejected", validate(g, [{ ...d[0], price: -50 }], 150).length > 0, true);
+  const dupErrors = validate(g, [d[0], { ...d[1], id: "D01" }], 150);
+  t("duplicate dish ID reported", dupErrors.some(e => e.startsWith("DUPLICATE_DISH_ID")), true);
+
+  // 5. Edge case
+  t("empty group -> dish trivially compatible", evaluateDish(d[4], [], 150).compatible, true);
+
+  // 6. Diet rules in isolation
+  const vegDish = { id:"T1", cafe:"c", name:"n", diet:"VEGAN", ingredients:[], price:50 };
+  const vegetarianDish = { id:"T2", cafe:"c", name:"n", diet:"VEGETARIAN", ingredients:[], price:50 };
+  const nonVegDish = { id:"T3", cafe:"c", name:"n", diet:"NON_VEGETARIAN", ingredients:[], price:50 };
+  const asVegan = [{ name:"X", diet:"VEGAN", allergens:[] }];
+  const asVegetarian = [{ name:"X", diet:"VEGETARIAN", allergens:[] }];
+  const asNoRestriction = [{ name:"X", diet:"NO_RESTRICTION", allergens:[] }];
+  t("VEGAN resident accepts VEGAN dish", evaluateDish(vegDish, asVegan, 150).compatible, true);
+  t("VEGAN resident rejects VEGETARIAN dish", evaluateDish(vegetarianDish, asVegan, 150).reasons, ["DIET:X"]);
+  t("VEGETARIAN resident accepts VEGAN dish", evaluateDish(vegDish, asVegetarian, 150).compatible, true);
+  t("VEGETARIAN resident accepts VEGETARIAN dish", evaluateDish(vegetarianDish, asVegetarian, 150).compatible, true);
+  t("VEGETARIAN resident rejects NON_VEGETARIAN dish", evaluateDish(nonVegDish, asVegetarian, 150).reasons, ["DIET:X"]);
+  t("NO_RESTRICTION resident accepts NON_VEGETARIAN dish", evaluateDish(nonVegDish, asNoRestriction, 150).compatible, true);
+
+  // 7. Validation: empty fields
+  t("empty resident name rejected", validate([{ name:"", diet:"VEGAN", allergens:[] }], d, 150).length > 0, true);
+  t("empty dish id rejected", validate(g, [{ ...d[0], id:"" }], 150).length > 0, true);
+  t("empty dish name rejected", validate(g, [{ ...d[0], name:"" }], 150).length > 0, true);
+
+  // 8. Coverage gap found in review: the built-in data must itself be valid.
+  t("built-in data passes validation", validate(g, d, 150), []);
+
+  return results;
+}
+
+function renderTests() {
+  const area = document.getElementById("testArea");
+  const results = runSelfTests();
+  const passed = results.filter(r => r.ok).length;
+  const total = results.length;
+  const rows = results.map(r =>
+    `<div style="font-family:ui-monospace,monospace;font-size:0.8rem;padding:3px 0;
+      color:${r.ok ? 'var(--ok)' : 'var(--bad)'}">
+      ${r.ok ? 'PASS' : 'FAIL'} &nbsp; ${r.label}` +
+      (r.ok ? "" : `<br>&nbsp;&nbsp;&nbsp;&nbsp;got: ${JSON.stringify(r.got)} want: ${JSON.stringify(r.want)}`) +
+    `</div>`).join("");
+  area.style.display = "block";
+  area.innerHTML =
+    `<h2 style="color:${passed === total ? 'var(--ok)' : 'var(--bad)'}">
+       Self-tests: ${passed}/${total} passed</h2>${rows}`;
+}
+
+document.getElementById("evaluateBtn").addEventListener("click", onEvaluate);
+document.getElementById("resetBtn").addEventListener("click", onReset);
+document.getElementById("testBtn").addEventListener("click", renderTests);
+document.getElementById("searchBox").addEventListener("input", onSearch);
+
+// Boot.
+loadBuiltins();
+renderAll();
+</script>
+</body>
+</html>
