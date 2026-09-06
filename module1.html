@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hostel Food Compatibility Board — Module 1</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; background: #12141a; color: #e7e9ee; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; color: #9aa1af; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #2e3340; }
+  th { color: #9aa1af; }
+</style>
+</head>
+<body>
+  <h1>Hostel Food Compatibility Board</h1>
+  <p>Module 1 — data model loaded (read-only).</p>
+
+  <h2>Group · budget ₹<span id="budget"></span>/person</h2>
+  <table id="groupTable">
+    <thead><tr><th>Resident</th><th>Diet</th><th>Allergens</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Dishes</h2>
+  <table id="dishTable">
+    <thead><tr><th>ID</th><th>Cafe</th><th>Dish</th><th>Diet</th><th>Ingredients</th><th>₹</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+/* ---- DATA MODEL: built-in constants ---- */
+const BUILTIN_BUDGET = 150;
+
+const BUILTIN_GROUP = [
+  { name: "Asha", diet: "VEGAN",          allergens: [] },
+  { name: "Dev",  diet: "VEGETARIAN",     allergens: ["PEANUT"] },
+  { name: "Mira", diet: "NO_RESTRICTION", allergens: ["MILK"] },
+];
+
+const BUILTIN_DISHES = [
+  { id: "D01", cafe: "Hostel Cafe",  name: "Lentil Rice Bowl", diet: "VEGAN",          ingredients: ["LENTIL", "RICE", "SPINACH"], price: 110 },
+  { id: "D02", cafe: "Library Cafe", name: "Tomato Pasta",     diet: "VEGAN",          ingredients: ["WHEAT", "TOMATO"],           price: 150 },
+  { id: "D03", cafe: "Hostel Cafe",  name: "Paneer Wrap",      diet: "VEGETARIAN",     ingredients: ["MILK", "WHEAT"],             price: 140 },
+  { id: "D04", cafe: "East Cafe",    name: "Peanut Noodles",   diet: "VEGAN",          ingredients: ["PEANUT", "WHEAT"],           price: 130 },
+  { id: "D05", cafe: "Library Cafe", name: "Egg Sandwich",     diet: "NON_VEGETARIAN", ingredients: ["EGG", "WHEAT"],              price: 100 },
+];
+
+/* ---- NORMALIZE (pure): trim + uppercase every comparable string ---- */
+const norm = (s) => String(s).trim().toUpperCase();
+
+function normalizeGroup(group) {
+  return group.map((r) => ({
+    name: String(r.name).trim(),      // name is a label, trimmed but not uppercased
+    diet: norm(r.diet),
+    allergens: r.allergens.map(norm),
+  }));
+}
+
+function normalizeDishes(dishes) {
+  return dishes.map((d) => ({
+    id: String(d.id).trim(),
+    cafe: String(d.cafe).trim(),
+    name: String(d.name).trim(),
+    diet: norm(d.diet),
+    ingredients: d.ingredients.map(norm),
+    price: d.price,
+  }));
+}
+
+/* ---- RENDER (read-only tables) ---- */
+const group = normalizeGroup(BUILTIN_GROUP);
+const dishes = normalizeDishes(BUILTIN_DISHES);
+
+document.getElementById("budget").textContent = BUILTIN_BUDGET;
+
+document.querySelector("#groupTable tbody").innerHTML = group.map((r) =>
+  `<tr><td>${r.name}</td><td>${r.diet}</td><td>${r.allergens.join(", ") || "none"}</td></tr>`
+).join("");
+
+document.querySelector("#dishTable tbody").innerHTML = dishes.map((d) =>
+  `<tr><td>${d.id}</td><td>${d.cafe}</td><td>${d.name}</td><td>${d.diet}</td><td>${d.ingredients.join(", ")}</td><td>${d.price}</td></tr>`
+).join("");
+</script>
+</body>
+</html>

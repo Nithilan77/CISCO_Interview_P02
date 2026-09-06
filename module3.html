@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hostel Food Compatibility Board — Module 1</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; background: #12141a; color: #e7e9ee; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; color: #9aa1af; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #2e3340; }
+  th { color: #9aa1af; }
+</style>
+</head>
+<body>
+  <h1>Hostel Food Compatibility Board</h1>
+  <p>Module 1 — data model loaded (read-only).</p>
+
+  <h2>Group · budget ₹<span id="budget"></span>/person</h2>
+  <table id="groupTable">
+    <thead><tr><th>Resident</th><th>Diet</th><th>Allergens</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Dishes</h2>
+  <table id="dishTable">
+    <thead><tr><th>ID</th><th>Cafe</th><th>Dish</th><th>Diet</th><th>Ingredients</th><th>₹</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <button id="validateBtn">Run validation</button>
+  <div id="errors" style="margin-top:12px;"></div>
+
+<script>
+/* ---- DATA MODEL: built-in constants ---- */
+const BUILTIN_BUDGET = 150;
+
+const BUILTIN_GROUP = [
+  { name: "Asha", diet: "VEGAN",          allergens: [] },
+  { name: "Dev",  diet: "VEGETARIAN",     allergens: ["PEANUT"] },
+  { name: "Mira", diet: "NO_RESTRICTION", allergens: ["MILK"] },
+];
+
+const BUILTIN_DISHES = [
+  { id: "D01", cafe: "Hostel Cafe",  name: "Lentil Rice Bowl", diet: "VEGAN",          ingredients: ["LENTIL", "RICE", "SPINACH"], price: 110 },
+  { id: "D02", cafe: "Library Cafe", name: "Tomato Pasta",     diet: "VEGAN",          ingredients: ["WHEAT", "TOMATO"],           price: 150 },
+  { id: "D03", cafe: "Hostel Cafe",  name: "Paneer Wrap",      diet: "VEGETARIAN",     ingredients: ["MILK", "WHEAT"],             price: 140 },
+  { id: "D04", cafe: "East Cafe",    name: "Peanut Noodles",   diet: "VEGAN",          ingredients: ["PEANUT", "WHEAT"],           price: 130 },
+  { id: "D05", cafe: "Library Cafe", name: "Egg Sandwich",     diet: "NON_VEGETARIAN", ingredients: ["EGG", "WHEAT"],              price: 100 },
+];
+
+/* ---- NORMALIZE (pure): trim + uppercase every comparable string ---- */
+const norm = (s) => String(s).trim().toUpperCase();
+
+function normalizeGroup(group) {
+  return group.map((r) => ({
+    name: String(r.name).trim(),      // name is a label, trimmed but not uppercased
+    diet: norm(r.diet),
+    allergens: r.allergens.map(norm),
+  }));
+}
+
+function normalizeDishes(dishes) {
+  return dishes.map((d) => ({
+    id: String(d.id).trim(),
+    cafe: String(d.cafe).trim(),
+    name: String(d.name).trim(),
+    diet: norm(d.diet),
+    ingredients: d.ingredients.map(norm),
+    price: d.price,
+  }));
+}
+
+
+/* ---- VALIDATION (pure): runs before compatibility. Returns error strings. ---- */
+function validate(group, dishes, budget) {
+  const errors = [];
+
+  if (!(Number.isInteger(budget) && budget > 0)) {
+    errors.push(`INVALID_INPUT: group / budget / must be a positive whole rupee`);
+  }
+
+  group.forEach((r, i) => {
+    if (!String(r.name).trim()) {
+      errors.push(`INVALID_INPUT: group / row ${i + 1} / name`);
+    }
+  });
+
+  const seen = new Set();
+  dishes.forEach((d, i) => {
+    const row = i + 1;
+    const id = String(d.id).trim();
+    if (!id)                     errors.push(`INVALID_INPUT: dishes / row ${row} / id`);
+    if (!String(d.cafe).trim())  errors.push(`INVALID_INPUT: dishes / row ${row} / cafe`);
+    if (!String(d.name).trim())  errors.push(`INVALID_INPUT: dishes / row ${row} / name`);
+    if (!(Number.isInteger(d.price) && d.price > 0)) {
+      errors.push(`INVALID_INPUT: dishes / row ${row} / price`);
+    }
+    if (id) {
+      if (seen.has(id)) errors.push(`DUPLICATE_DISH_ID: dishes / row ${row} / id — "${id}"`);
+      else seen.add(id);
+    }
+  });
+
+  return errors;
+}
+
+
+/* ---- COMPATIBILITY (pure): one dish vs the whole group ----
+   Returns { id, compatible, reasons } with reasons in contract order:
+   per resident (table order) diet-before-allergen; allergens in the dish's
+   ingredient order; OVER_BUDGET last. ---- */
+const DIET_ACCEPTS = {
+  VEGAN:          ["VEGAN"],
+  VEGETARIAN:     ["VEGAN", "VEGETARIAN"],
+  NO_RESTRICTION: ["VEGAN", "VEGETARIAN", "NON_VEGETARIAN"],
+};
+
+function evaluateDish(dish, group, budget) {
+  const reasons = [];
+  for (const resident of group) {                    // outer: each resident, table order
+    const accepted = DIET_ACCEPTS[resident.diet] || [];
+    if (!accepted.includes(dish.diet)) {             // diet check first
+      reasons.push(`DIET:${resident.name}`);
+    }
+    for (const ing of dish.ingredients) {            // inner: dish ingredients (for order)
+      if (resident.allergens.includes(ing)) {
+        reasons.push(`ALLERGEN:${resident.name}:${ing}`);
+      }
+    }
+  }
+  if (dish.price > budget) {                          // budget once, dish-level, last
+    reasons.push("OVER_BUDGET");
+  }
+  return { id: dish.id, compatible: reasons.length === 0, reasons };
+}
+
+function evaluateAll(group, dishes, budget) {
+  return dishes.map((d) => evaluateDish(d, group, budget)); // source order preserved
+}
+
+/* ---- RENDER (read-only tables) ---- */
+const group = normalizeGroup(BUILTIN_GROUP);
+const dishes = normalizeDishes(BUILTIN_DISHES);
+
+document.getElementById("budget").textContent = BUILTIN_BUDGET;
+
+document.querySelector("#groupTable tbody").innerHTML = group.map((r) =>
+  `<tr><td>${r.name}</td><td>${r.diet}</td><td>${r.allergens.join(", ") || "none"}</td></tr>`
+).join("");
+
+document.querySelector("#dishTable tbody").innerHTML = dishes.map((d) =>
+  `<tr><td>${d.id}</td><td>${d.cafe}</td><td>${d.name}</td><td>${d.diet}</td><td>${d.ingredients.join(", ")}</td><td>${d.price}</td></tr>`
+).join("");
+
+document.getElementById("validateBtn").addEventListener("click", () => {
+  const errors = validate(group, dishes, BUILTIN_BUDGET);
+  const area = document.getElementById("errors");
+  if (!errors.length) {
+    area.innerHTML = '<span style="color:#4ea86b">No validation errors — data is well-formed.</span>';
+  } else {
+    area.innerHTML = errors.map(e => `<div style="color:#d9705f;font-family:monospace;font-size:0.85rem;">${e}</div>`).join("");
+  }
+});
+
+  window.__evaluateAll = evaluateAll; window.__evaluateDish = evaluateDish;
+  window.__group = group; window.__dishes = dishes;
+</script>
+</body>
+</html>
